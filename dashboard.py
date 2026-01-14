@@ -199,6 +199,34 @@ if uploaded_file:
     )
     st.plotly_chart(user_bar, use_container_width=True)
 
+    # User-Application usage breakdown (stacked bar chart)
+    st.subheader("User-Application Activity Breakdown (Filtered)")
+    user_app_usage = filtered_df.groupby(['User', 'Application'])['Total_Active_Time_Minutes'].sum().reset_index()
+    if not user_app_usage.empty:
+        user_app_pivot = user_app_usage.pivot(index='User', columns='Application', values='Total_Active_Time_Minutes').fillna(0)
+        stacked_bar = go.Figure()
+        for app in user_app_pivot.columns:
+            stacked_bar.add_trace(go.Bar(
+                name=app,
+                x=user_app_pivot.index,
+                y=user_app_pivot[app],
+                text=user_app_pivot[app],
+                textposition='auto',
+            ))
+        stacked_bar.update_layout(
+            barmode='stack',
+            height=400,
+            margin=dict(t=30, b=30, l=0, r=0),
+            xaxis_title='User',
+            yaxis_title='Total Minutes',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            legend_title_text='Application',
+        )
+        st.plotly_chart(stacked_bar, use_container_width=True)
+    else:
+        st.info("No user-application activity data to display.")
+
     # Top User Activity Progress and Work Pattern by Hour side by side
     colE, colF = st.columns(2)
     with colE:
