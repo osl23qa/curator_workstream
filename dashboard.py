@@ -258,31 +258,85 @@ if uploaded_file:
             )
             st.plotly_chart(bar_fig, use_container_width=True, key="top_user_bar")
     with colF:
-        st.subheader("Work Pattern by Hour (Filtered)")
+        st.subheader("User Work Pattern by Hour (Filtered)")
         filtered_df['Hour'] = filtered_df['WrittenAt'].dt.hour
-        hour_usage = filtered_df.groupby('Hour')['Total_Active_Time_Minutes'].sum()
-        import plotly.graph_objects as go
-        hour_fig = go.Figure()
-        hour_labels = [f"{v} min" for v in hour_usage.values]
-        hour_fig.add_trace(go.Scatter(
-            x=hour_usage.index,
-            y=hour_usage.values,
-            mode='lines+markers+text',
-            text=hour_labels,
-            textposition='top center',
-            line=dict(color='#43a047', width=3),
-            marker=dict(size=8, color='#43a047'),
-            name='Active Minutes'
-        ))
-        hour_fig.update_layout(
-            xaxis_title='Hour of Day',
-            yaxis_title='Total Active Minutes',
-            height=350,
-            margin=dict(t=30, b=30, l=0, r=0),
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)'
-        )
-        st.plotly_chart(hour_fig, use_container_width=True, key="hour_line_chart")
+        user_hour_usage = filtered_df.groupby(['User', 'Hour'])['Total_Active_Time_Minutes'].sum().reset_index()
+        if not user_hour_usage.empty:
+            user_hour_pivot = user_hour_usage.pivot(index='User', columns='Hour', values='Total_Active_Time_Minutes').fillna(0)
+            import plotly.graph_objects as go
+            # Prepare custom hover text for each cell
+            hovertext = []
+            for user in user_hour_pivot.index:
+                row = []
+                for hour in user_hour_pivot.columns:
+                    cell_df = filtered_df[(filtered_df['User'] == user) & (filtered_df['Hour'] == hour)]
+                    apps = cell_df['Application'].unique()
+                    total_minutes = user_hour_pivot.loc[user, hour]
+                    if cell_df.empty or total_minutes == 0:
+                        row.append(f"User: {user}<br>Hour: {hour}<br>No activity")
+                    else:
+                        app_details = []
+                        for app in apps:
+                            app_df = cell_df[cell_df['Application'] == app].sort_values('WrittenAt')
+                            if not app_df.empty:
+                                # Calculate start and end datetime using WrittenAt and Total_Active_Time_Minutes
+                                start_dt = app_df.iloc[0]['WrittenAt']
+                                total_minutes_app = app_df.iloc[0]['Total_Active_Time_Minutes']
+                                # Formula: end_dt = start_dt + total_minutes_app (in minutes)
+                                end_dt = start_dt + pd.Timedelta(minutes=total_minutes_app)
+                                start_str = start_dt.strftime('%m/%d/%Y %H:%M')
+                                end_str = end_dt.strftime('%m/%d/%Y %H:%M')
+                                app_details.append(f"{app}: {start_str} - {end_str} (for {total_minutes_app} min)")
+                            else:
+                                app_details.append(f"{app}: time unknown")
+                        app_details_str = '<br>'.join(app_details)
+                        row.append(
+                            f"User: {user}<br>Hour: {hour}<br>Active Minutes: {total_minutes}<br>Applications Used ({len(apps)}):<br>{app_details_str}"
+                        )
+                hovertext.append(row)
+            # Use the original light blue gradient for the heatmap
+            # Revert to original style: full hour range, standard 'Blues' colorscale
+            # Limit x-axis to only hours with activity
+            active_hours = [h for h in user_hour_pivot.columns if user_hour_pivot[h].sum() > 0]
+            user_hour_pivot_limited = user_hour_pivot[active_hours]
+            heatmap_fig = go.Figure(data=go.Heatmap(
+                z=user_hour_pivot_limited.values,
+                x=active_hours,
+                y=user_hour_pivot_limited.index,
+                text=[[hovertext[i][user_hour_pivot.columns.get_loc(h)] for h in active_hours] for i in range(len(user_hour_pivot.index))],
+                hoverinfo="text",
+                colorscale="Blues",
+                colorbar=dict(title="Active Minutes")
+            ))
+            # Add thin horizontal lines to separate user rows
+            for i in range(1, len(user_hour_pivot.index)):
+                heatmap_fig.add_shape(
+                    type="line",
+                    x0=-0.5,
+                    x1=len(user_hour_pivot.columns)-0.5,
+                    y0=i-0.5,
+                    y1=i-0.5,
+                    line=dict(color="rgba(0,0,0,0.25)", width=1),
+                    xref="x",
+                    yref="y"
+                )
+            heatmap_fig.update_layout(
+                height=400,
+                margin=dict(t=30, b=30, l=0, r=0),
+                xaxis_title='Hour of Day',
+                yaxis_title='User',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(
+                    tickmode='array',
+                    tickvals=active_hours,
+                    ticktext=[str(h) for h in active_hours],
+                    range=[min(active_hours)-0.5, max(active_hours)+0.5] if active_hours else None
+                )
+            )
+            st.plotly_chart(heatmap_fig, use_container_width=True, key="user_hour_heatmap")
+        else:
+            st.info("No user-hour activity data to display.")
 
     # User activity and Host usage bar charts side by side
     user_usage = filtered_df.groupby('User')['Total_Active_Time_Minutes'].sum().sort_values(ascending=False)
